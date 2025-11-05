@@ -9,6 +9,7 @@ namespace ServerLib
 	{
 		public abstract void Execute();
 		public bool Cancel { get; set; } = false;
+        public JobQueue Queue { get; set; }
 	}
 
 	public class Job : JobBase

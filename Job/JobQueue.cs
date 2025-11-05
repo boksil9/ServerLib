@@ -6,25 +6,25 @@ namespace ServerLib
 {
 	public class JobQueue
 	{
-		JobTimer _timer = new JobTimer();
-		Queue<JobBase> _jobQueue = new Queue<JobBase>();
+		JobTimerManager _timer = new JobTimerManager();
+		Queue<JobBase> _queue = new Queue<JobBase>();
 		object _lock = new object();
 
-		public int TimerCount { get { return _timer.Count; } }
-		public int JobCount { get { lock (_lock) { return _jobQueue.Count; } } }
+		public int JobCount { get { lock (_lock) { return _queue.Count; } } }
 
-		public JobBase PushAfter(int tickAfter, Action action) { return PushAfter(tickAfter, new Job(action)); }
-		public JobBase PushAfter<T1>(int tickAfter, Action<T1> action, T1 t1) { return PushAfter(tickAfter, new Job<T1>(action, t1)); }
-		public JobBase PushAfter<T1, T2>(int tickAfter, Action<T1, T2> action, T1 t1, T2 t2) { return PushAfter(tickAfter, new Job<T1, T2>(action, t1, t2)); }
-		public JobBase PushAfter<T1, T2, T3>(int tickAfter, Action<T1, T2, T3> action, T1 t1, T2 t2, T3 t3) { return PushAfter(tickAfter, new Job<T1, T2, T3>(action, t1, t2, t3)); }
-		public JobBase PushAfter<T1, T2, T3, T4>(int tickAfter, Action<T1, T2, T3, T4> action, T1 t1, T2 t2, T3 t3, T4 t4) { return PushAfter(tickAfter, new Job<T1, T2, T3, T4>(action, t1, t2, t3, t4)); }
-		public JobBase PushAfter<T1, T2, T3, T4, T5>(int tickAfter, Action<T1, T2, T3, T4, T5> action, T1 t1, T2 t2, T3 t3, T4 t4, T5 t5) { return PushAfter(tickAfter, new Job<T1, T2, T3, T4, T5>(action, t1, t2, t3, t4, t5)); }
-		public JobBase PushAfter<T1, T2, T3, T4, T5, T6>(int tickAfter, Action<T1, T2, T3, T4, T5, T6> action, T1 t1, T2 t2, T3 t3, T4 t4, T5 t5, T6 t6) { return PushAfter(tickAfter, new Job<T1, T2, T3, T4, T5, T6>(action, t1, t2, t3, t4, t5, t6)); }
-		public JobBase PushAfter<T1, T2, T3, T4, T5, T6, T7>(int tickAfter, Action<T1, T2, T3, T4, T5, T6, T7> action, T1 t1, T2 t2, T3 t3, T4 t4, T5 t5, T6 t6, T7 t7) { return PushAfter(tickAfter, new Job<T1, T2, T3, T4, T5, T6, T7>(action, t1, t2, t3, t4, t5, t6, t7)); }
+		public JobBase PushAfter(int delay, Action action) { return PushAfter(delay, new Job(action)); }
+		public JobBase PushAfter<T1>(int delay, Action<T1> action, T1 t1) { return PushAfter(delay, new Job<T1>(action, t1)); }
+		public JobBase PushAfter<T1, T2>(int delay, Action<T1, T2> action, T1 t1, T2 t2) { return PushAfter(delay, new Job<T1, T2>(action, t1, t2)); }
+		public JobBase PushAfter<T1, T2, T3>(int delay, Action<T1, T2, T3> action, T1 t1, T2 t2, T3 t3) { return PushAfter(delay, new Job<T1, T2, T3>(action, t1, t2, t3)); }
+		public JobBase PushAfter<T1, T2, T3, T4>(int delay, Action<T1, T2, T3, T4> action, T1 t1, T2 t2, T3 t3, T4 t4) { return PushAfter(delay, new Job<T1, T2, T3, T4>(action, t1, t2, t3, t4)); }
+		public JobBase PushAfter<T1, T2, T3, T4, T5>(int delay, Action<T1, T2, T3, T4, T5> action, T1 t1, T2 t2, T3 t3, T4 t4, T5 t5) { return PushAfter(delay, new Job<T1, T2, T3, T4, T5>(action, t1, t2, t3, t4, t5)); }
+		public JobBase PushAfter<T1, T2, T3, T4, T5, T6>(int delay, Action<T1, T2, T3, T4, T5, T6> action, T1 t1, T2 t2, T3 t3, T4 t4, T5 t5, T6 t6) { return PushAfter(delay, new Job<T1, T2, T3, T4, T5, T6>(action, t1, t2, t3, t4, t5, t6)); }
+		public JobBase PushAfter<T1, T2, T3, T4, T5, T6, T7>(int delay, Action<T1, T2, T3, T4, T5, T6, T7> action, T1 t1, T2 t2, T3 t3, T4 t4, T5 t5, T6 t6, T7 t7) { return PushAfter(delay, new Job<T1, T2, T3, T4, T5, T6, T7>(action, t1, t2, t3, t4, t5, t6, t7)); }
 
-		public JobBase PushAfter(int tickAfter, JobBase job)
+		public JobBase PushAfter(int delay, JobBase job)
 		{
-			_timer.Push(job, tickAfter);
+			job.Queue = this;
+			_timer.Push(job, delay);
 			return job;
 		}
 
@@ -41,14 +41,13 @@ namespace ServerLib
 		{
 			lock (_lock)
 			{
-				_jobQueue.Enqueue(job);
+				job.Queue = this;
+				_queue.Enqueue(job);
 			}
 		}
 
 		public void Flush()
 		{
-			_timer.Flush();
-
 			while (true)
 			{
 				JobBase job = Pop();
@@ -63,11 +62,11 @@ namespace ServerLib
 		{
 			lock (_lock)
 			{
-				if (_jobQueue.Count == 0)
+				if (_queue.Count == 0)
 				{
 					return null;
 				}
-				return _jobQueue.Dequeue();
+				return _queue.Dequeue();
 			}
 		}
 	}
