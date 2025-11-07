@@ -6,13 +6,15 @@ namespace ServerLib
 {
 	public class RecvBuffer
 	{
-		ArraySegment<byte> _buffer;
-		int _currentPos;
-		int _receivedPos;
+		private ArraySegment<byte> _buffer;
+		private int _currentPos;
+		private int _receivedPos;
+		private int _origBufSize;
 
-		public RecvBuffer(int maxBufSize)
+		public RecvBuffer(int bufSize)
 		{
-			_buffer = new ArraySegment<byte>(new byte[maxBufSize], 0, maxBufSize);
+			_buffer = new ArraySegment<byte>(new byte[bufSize], 0, bufSize);
+			_origBufSize = bufSize;
 		}
 
 		public int UnProcessedSize { get { return _receivedPos - _currentPos; } }
@@ -37,6 +39,9 @@ namespace ServerLib
 			if (remainSize == 0)
 			{
 				_receivedPos = 0;
+
+				if(_buffer.Count != _origBufSize)
+					_buffer = new ArraySegment<byte>(new byte[_origBufSize], 0, _origBufSize);
 			}
 			else
 			{
@@ -45,6 +50,19 @@ namespace ServerLib
 			}
 
 			_currentPos = 0;
+		}
+
+		public void Grow()
+		{
+			if(WritableSize == 0)
+			{
+				int newSize = _buffer.Count + _origBufSize;
+				var newBuffer = new ArraySegment<byte>(new byte[newSize], 0 , newSize);
+
+				Array.Copy(_buffer.Array, _buffer.Offset + _currentPos, newBuffer.Array, newBuffer.Offset, _currentPos);
+
+				_buffer = newBuffer;
+			}
 		}
 
 		public bool OnProcess(int bytes)

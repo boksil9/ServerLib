@@ -76,6 +76,9 @@ namespace ServerLib
 		public abstract void OnSend(int numOfBytes);
 		public abstract void OnDisconnected(EndPoint endPoint);
 
+		bool IsDone() { return _sendQueue.Count > 0; }
+		bool HasPending() { return _pendingList.Count > 0; }
+
 		void Clear()
 		{
 			lock (_lock)
@@ -106,8 +109,8 @@ namespace ServerLib
 				foreach (ArraySegment<byte> sendBuff in sendBuffList)
 					_sendQueue.Enqueue(sendBuff);
 
-				if (_pendingList.Count == 0)
-					RegisterSend();
+				if (false == HasPending())
+					SendPending();
 			}
 		}
 
@@ -116,8 +119,8 @@ namespace ServerLib
 			lock (_lock)
 			{
 				_sendQueue.Enqueue(sendBuff);
-				if (_pendingList.Count == 0)
-					RegisterSend();
+				if (false == HasPending())
+					SendPending();
 			}
 		}
 
@@ -132,12 +135,12 @@ namespace ServerLib
 			Clear();
 		}
 
-		void RegisterSend()
+		void SendPending()
 		{
 			if (_disconnected == 1)
 				return;
 
-			while (_sendQueue.Count > 0)
+			while (false == IsDone())
 			{
 				ArraySegment<byte> buff = _sendQueue.Dequeue();
 				_pendingList.Add(buff);
@@ -152,7 +155,7 @@ namespace ServerLib
 			}
 			catch (Exception e)
 			{
-				Console.WriteLine($"RegisterSend Failed {e}");
+				Console.WriteLine($"Session::SendPending Failed : {e}");
 				Disconnect();
 			}
 		}
@@ -170,8 +173,8 @@ namespace ServerLib
 
 						OnSend(_sendArgs.BytesTransferred);
 
-						if (_sendQueue.Count > 0)
-							RegisterSend();
+						if (false == IsDone())
+							SendPending();
 					}
 					catch (Exception e)
 					{
@@ -190,8 +193,9 @@ namespace ServerLib
 			if (_disconnected == 1)
 				return;
 
-			_recvBuffer.Clean();
-			ArraySegment<byte> segment = _recvBuffer.WriteSegment;
+			_recvBuffer.Grow();
+
+            ArraySegment<byte> segment = _recvBuffer.WriteSegment;
 			_recvArgs.SetBuffer(segment.Array, segment.Offset, segment.Count);
 
 			try
@@ -237,7 +241,8 @@ namespace ServerLib
 						return;
 					}
 
-					RegisterRecv();
+                    _recvBuffer.Clean();
+                    RegisterRecv();
 				}
 				catch (Exception e)
 				{
