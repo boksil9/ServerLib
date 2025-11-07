@@ -31,6 +31,7 @@ namespace ServerLib
 		{
 			_listenSocket.Shutdown(SocketShutdown.Both);
 			_listenSocket.Close();
+			_listenSocket = null;
 		}
 
 		void WaitForAccept(SocketAsyncEventArgs args)
@@ -50,7 +51,13 @@ namespace ServerLib
 				{
 					Session session = NewSession(args);
 					if (session == null)
+					{
+						args.AcceptSocket.Shutdown(SocketShutdown.Both);
+						args.AcceptSocket.Close();
+						args.AcceptSocket = null;
+
 						return;
+					}
 
                     session.Start(args.AcceptSocket);
 					session.OnConnected(args.AcceptSocket.RemoteEndPoint);
