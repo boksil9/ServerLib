@@ -10,18 +10,18 @@ namespace ServerLib
 {
     public class NetBase
     {
-        protected Func<Session> fnMakeSession;
-        protected IPEndPoint endPoint;
+        protected Func<Session> _fnMakeSession;
+        protected IPEndPoint _endPoint;
 
         public void Init(IPEndPoint endPoint, Func<Session> fn)
         {
-            this.endPoint = endPoint;
-            fnMakeSession = fn;
+            _endPoint = endPoint;
+            _fnMakeSession = fn;
         }
 
         protected Session NewSession(SocketAsyncEventArgs args)
         {
-            Session session = fnMakeSession.Invoke();
+            Session session = _fnMakeSession.Invoke();
             if (session == null)
             {
                 Console.WriteLine($"Make New Session Failed. EndPoint : {args.RemoteEndPoint}");

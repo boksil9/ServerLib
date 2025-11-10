@@ -10,11 +10,11 @@ namespace ServerLib
 	{
 		public void Connect()
 		{
-			Socket socket = new Socket(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+			Socket socket = new Socket(_endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 			SocketAsyncEventArgs args = new SocketAsyncEventArgs();
 				
 			args.Completed += OnConnected;
-			args.RemoteEndPoint = endPoint;
+			args.RemoteEndPoint = _endPoint;
 			args.UserToken = socket;
 
 			WaitForConnect(args);

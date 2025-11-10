@@ -35,8 +35,9 @@ namespace ServerLib
 
 				T session = new T();
 				session.SessionId = sessionId;
-				_sessions.Add(sessionId, session);
+				session.SessionMgr = this;
 
+				_sessions.Add(sessionId, session);
 				Console.WriteLine($"Connected : {sessionId}");
 
 				return session;
@@ -65,6 +66,30 @@ namespace ServerLib
 			lock (_lock)
 			{
 				return _sessions.Count;
+			}
+		}
+
+		public int DisconnectAll()
+		{
+			var sessions = GetSessions();
+
+			lock(_lock)
+			{
+				foreach(var session in sessions)
+					session.Disconnect();
+
+				return sessions.Count;
+			}
+		}
+
+		public void BroadCast(ArraySegment<byte> sendBuff)
+		{
+			lock(_lock)
+			{
+				foreach(var session in _sessions)
+				{
+					session.Value.Send(sendBuff);
+				}
 			}
 		}
 	}
