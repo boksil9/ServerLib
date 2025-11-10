@@ -62,6 +62,7 @@ namespace ServerLib
 		Socket _socket;
 		int _disconnected = 0;
         public int SessionId { get; set; }
+		public SessionManager SessionMgr { get; set; }
 
         RecvBuffer _recvBuffer = new RecvBuffer(65535);
 
@@ -85,8 +86,9 @@ namespace ServerLib
 			{
 				_sendQueue.Clear();
 				_pendingList.Clear();
-				_socket?.Dispose();
-			}
+                _socket.Shutdown(SocketShutdown.Both);
+                _socket.Close();
+            }
 		}
 
 		public void Start(Socket socket)
@@ -130,9 +132,10 @@ namespace ServerLib
 				return;
 
 			OnDisconnected(_socket.RemoteEndPoint);
-			_socket.Shutdown(SocketShutdown.Both);
-			_socket.Close();
 			Clear();
+			
+			if (SessionMgr != null)
+				SessionMgr.Remove(this);
 		}
 
 		void SendPending()

@@ -15,8 +15,8 @@ namespace ServerLib
 			if (_listenSocket != null)
 				Clear();
 
-			_listenSocket = new Socket(endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-			_listenSocket.Bind(endPoint);
+			_listenSocket = new Socket(_endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+			_listenSocket.Bind(_endPoint);
 			_listenSocket.Listen(100);
 
 			for (int i = 0; i < register; i++)
