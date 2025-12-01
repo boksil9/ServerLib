@@ -65,7 +65,7 @@ namespace GameServer
         }
     }
 
-    public class RedisHSetCmd<T> : IRedisCommand
+    public class RedisHSetCmd : IRedisCommand
     {
         private readonly RedisKey _key;
         private readonly RedisValue _field;
@@ -116,7 +116,7 @@ namespace GameServer
             _callBack.Invoke(converted);
         }
     }
-    public class RedisPublishCmd<T> : IRedisCommand
+    public class RedisPublishCmd : IRedisCommand
     {
         private readonly RedisChannel _channel;
         private readonly RedisValue _message;
