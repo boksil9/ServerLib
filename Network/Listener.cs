@@ -9,68 +9,159 @@ namespace ServerLib
 	public class Listener : NetBase
 	{
 		Socket _listenSocket;
+		private volatile bool _stopped = false;
 
-		public void Listen(int register = 10)
+		public void Listen(int backLog = 100)
 		{
+			if (_endPoint == null)
+				throw new InvalidOperationException("[Listener::Listen()] Listen before initialized.\"");
+
 			if (_listenSocket != null)
-				Clear();
+				Stop();
 
 			_listenSocket = new Socket(_endPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 			_listenSocket.Bind(_endPoint);
-			_listenSocket.Listen(100);
+			_listenSocket.Listen(backLog);
 
-			for (int i = 0; i < register; i++)
-			{
-				SocketAsyncEventArgs args = new SocketAsyncEventArgs();
-				args.Completed += new EventHandler<SocketAsyncEventArgs>(OnAcceptCompleted);
-				WaitForAccept(args);
-			}
-		}
+            for (int i = 0; i < _maxConnections; i++)
+            {
+                SocketAsyncEventArgs args = new SocketAsyncEventArgs();
+                args.Completed += new EventHandler<SocketAsyncEventArgs>(OnAcceptCompleted);
+                _eventPool.Push(args);
+            }
 
-		void Clear()
+            _stopped = false;
+
+			Console.WriteLine($"[Listenter::Listen()] Listening on. endpoint : {_endPoint}, backlog : {backLog}");
+
+			_thread = new Thread(AcceptThread);
+			_thread.Start();
+        }
+
+		void Stop()
 		{
-			_listenSocket.Shutdown(SocketShutdown.Both);
-			_listenSocket.Close();
+			if (_listenSocket == null)
+				return;
+
+			_stopped = true;
+
+			try
+			{
+				_listenSocket.Close();
+			}
+			catch(Exception e)
+			{
+				Console.WriteLine($"[Listener::Stop()] Socket close exception : {e}");
+			}
+
+            if (_thread != null)
+            {
+                _thread.Join();
+                _thread = null;
+            }
+
 			_listenSocket = null;
 		}
 
-		void WaitForAccept(SocketAsyncEventArgs args)
+		void AcceptThread()
 		{
-			args.AcceptSocket = null;
+			for (int i = 0; i < _maxConnections; i++)
+			{
+				if (_stopped)
+					break;
 
-			bool pending = _listenSocket.AcceptAsync(args);
-			if (pending == false)
-				OnAcceptCompleted(null, args);
+				var args = _eventPool.Pop();
+				if (args == null)
+					break;
+
+				StartAccept(args);
+			}
 		}
+
+		void StartAccept(SocketAsyncEventArgs args)
+		{
+			if (_stopped)
+				return;
+
+			args.AcceptSocket = null;
+			try
+			{
+				bool pending = _listenSocket.AcceptAsync(args);
+				if (pending == false)
+					OnAcceptCompleted(this, args);
+			}
+			catch(ObjectDisposedException)
+			{
+				return;
+			}
+            catch (Exception e)
+            {
+                Console.WriteLine($"[Listenter::StartAccept()] Accept exception : {e}");
+                _eventPool.Push(args);
+            }
+        }
 
 		void OnAcceptCompleted(object sender, SocketAsyncEventArgs args)
 		{
+			if(_stopped)
+			{
+				CloseSocket(args.AcceptSocket);
+				return;
+			}
 			try
 			{
 				if (args.SocketError == SocketError.Success)
 				{
-					Session session = NewSession(args);
-					if (session == null)
+					Socket sock = args.AcceptSocket;
+					if (sock == null || sock.Connected == false)
 					{
-						args.AcceptSocket.Shutdown(SocketShutdown.Both);
-						args.AcceptSocket.Close();
-						args.AcceptSocket = null;
-
-						return;
+						Console.WriteLine("[Listenter::OnAcceopCompleted()] Invalid socket");
+						// TODO : 연결은 됐는데 소켓 에러일 때 정책
 					}
-
-                    session.Start(args.AcceptSocket);
-					session.OnConnected(args.AcceptSocket.RemoteEndPoint);
+					else
+					{
+						Session session = NewSession(args);
+						if (session == null)
+						{
+							Console.WriteLine("[Listener::OnAccepCompleted()] Session creation failed. Close socket");
+							CloseSocket(sock);
+						}
+						else
+						{
+							try
+							{
+								session.Start(args.AcceptSocket);
+								session.OnConnected(args.AcceptSocket.RemoteEndPoint);
+							}
+							catch (Exception e)
+							{
+								Console.WriteLine($"[Listener::OnAccepCompleted()] Session Start/OnConnected exception : {e}");
+								CloseSocket(sock);
+							}
+						}
+					}
 				}
 				else
-					Console.WriteLine(args.SocketError.ToString());
+				{
+					Console.WriteLine($"[Listener::OnAccepCompleted()] Accept failed : {args.SocketError}");
+					// TODO : 소켓 연결 실패 정책
+                }
 			}
-			catch (Exception ex)
+			catch (Exception e)
 			{
-				Console.WriteLine(ex);
-			}			
-
-			WaitForAccept(args);
+				Console.WriteLine($"[Listener::OnAccepCompleted()] Accept exception : {e}");
+            }
+			finally
+			{
+				if(_stopped == false)
+				{
+					StartAccept(args);
+				}
+				else
+				{
+					CloseSocket(args.AcceptSocket);
+                }
+			}
 		}
 	}
 }

@@ -12,28 +12,82 @@ namespace ServerLib
     {
         protected Func<Session> _fnMakeSession;
         protected IPEndPoint _endPoint;
+        protected Thread _thread; 
+        protected SocketAsyncEventArgsPool _eventPool; 
+        protected readonly int _maxConnections = 100;
 
-        public void Init(IPEndPoint endPoint, Func<Session> fn)
+        public NetBase()
         {
-            _endPoint = endPoint;
-            _fnMakeSession = fn;
+            _eventPool = new SocketAsyncEventArgsPool(_maxConnections);
+        }
+
+        public void Init(IPEndPoint endPoint, Func<Session> sessionFactory)
+        {
+            _endPoint = endPoint ?? throw new ArgumentNullException(nameof(endPoint));
+            _fnMakeSession = sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
         }
 
         protected Session NewSession(SocketAsyncEventArgs args)
         {
-            Session session = _fnMakeSession.Invoke();
+            Socket sock = args.UserToken as Socket;
+            if (sock == null)
+            {
+                Console.WriteLine("[NetBase::NewSession()] Create new session failed. Socket is null.");
+                return null;
+            }
+
+            Session session = null;
+
+            try
+            {
+                session = _fnMakeSession.Invoke();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"[NetBase::NewSession()] Session factory exception : {e}");
+            }
+
             if (session == null)
             {
-                Console.WriteLine($"Make New Session Failed. EndPoint : {args.RemoteEndPoint}");
-                Socket socket = args.UserToken as Socket;
-                if (socket == null)
-                    return null;
-
-                socket.Shutdown(SocketShutdown.Both);
-                socket.Close();
+                Console.WriteLine($"[NetBase::NewSession()] Create New Session Failed. EndPoint : {args.RemoteEndPoint}");
+                CloseSocket(sock);
+                return null;
             }
 
             return session;
+        }
+
+        protected void CloseSocket(Socket socket)
+        {
+            if (socket == null)
+                return;
+
+            try
+            {
+                if(socket.Connected)
+                {
+                    socket.Shutdown(SocketShutdown.Both);
+                }
+            }
+            catch(SocketException e)
+            {
+                Console.WriteLine($"[NetBase::CloseSocket()] Socket shutdown socket exception: {e.SocketErrorCode}");
+            }
+            catch(Exception e)
+            {
+                Console.WriteLine($"[NetBase::CloseSocket()] Socket shutdown exception : {e}");
+            }
+            finally
+            {
+                try
+                {
+                    socket.Close();
+                }
+                catch(Exception e)
+                {
+                    Console.WriteLine($"[NetBase::CloseSocket()] Socket close exception : {e}");
+                }
+            }
         }
     }
 }
