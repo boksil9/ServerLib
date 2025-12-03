@@ -1,6 +1,7 @@
 ﻿using Google.Protobuf;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -8,7 +9,7 @@ using System.Threading;
 
 namespace ServerLib
 {
-	public abstract class PacketSession : Session
+	public abstract class PacketSession : Session 
 	{
 		public static readonly int HeaderSize = 2;
 
@@ -17,7 +18,7 @@ namespace ServerLib
             Send(new ArraySegment<byte>(MakeSendBuffer(packet)));
         }
 
-        public virtual byte[] MakeSendBuffer(IMessage packet)
+        public virtual byte[] MakeSendBuffer(IMessage packet) 
         {
             ushort size = (ushort)packet.CalculateSize();
 
@@ -35,7 +36,7 @@ namespace ServerLib
 
 			while (true)
 			{
-				if (buffer.Count < HeaderSize)
+				if (buffer.Count < HeaderSize) 
 					break;
 
 				ushort dataSize = BitConverter.ToUInt16(buffer.Array, buffer.Offset);
@@ -59,6 +60,15 @@ namespace ServerLib
 
 	public abstract class Session
 	{
+		~Session()
+		{
+			if(_socket != null)
+			{
+                try { _socket.Shutdown(SocketShutdown.Both); } catch { }
+                try { _socket.Close(); } catch { }
+            }
+        }
+
 		Socket _socket;
 		int _disconnected = 0;
         public int SessionId { get; set; }
@@ -77,7 +87,7 @@ namespace ServerLib
 		public abstract void OnSend(int numOfBytes);
 		public abstract void OnDisconnected(EndPoint endPoint);
 
-		bool IsDone() { return _sendQueue.Count > 0; }
+		bool EmptySendQueue() { return _sendQueue.Count == 0; }
 		bool HasPending() { return _pendingList.Count > 0; }
 
 		void Clear()
@@ -86,8 +96,6 @@ namespace ServerLib
 			{
 				_sendQueue.Clear();
 				_pendingList.Clear();
-                _socket.Shutdown(SocketShutdown.Both);
-                _socket.Close();
             }
 		}
 
@@ -103,7 +111,10 @@ namespace ServerLib
 
 		public void Send(List<ArraySegment<byte>> sendBuffList)
 		{
-			if (sendBuffList.Count == 0)
+            if (_disconnected == 1)
+                return;
+
+            if (sendBuffList.Count == 0)
 				return;
 
 			lock (_lock)
@@ -118,9 +129,12 @@ namespace ServerLib
 
 		public void Send(ArraySegment<byte> sendBuff)
 		{
+			if (_disconnected == 1)
+				return;
+
 			lock (_lock)
 			{
-				_sendQueue.Enqueue(sendBuff);
+				_sendQueue.Enqueue(sendBuff); 
 				if (false == HasPending())
 					SendPending();
 			}
@@ -131,11 +145,26 @@ namespace ServerLib
 			if (Interlocked.Exchange(ref _disconnected, 1) == 1)
 				return;
 
-			OnDisconnected(_socket.RemoteEndPoint);
+			var socket = _socket;
+			_socket = null;
+
+			try { OnDisconnected(socket?.RemoteEndPoint); }
+			catch
+			(Exception e)
+			{ Debug.WriteLine($"[Session::Disconnect()] : OnDiscconnected exception : {e}"); }
+
 			Clear();
 			
 			if (SessionMgr != null)
 				SessionMgr.Remove(this);
+
+			if(socket != null)
+			{
+				try { socket.Shutdown(SocketShutdown.Both); } catch { }
+				try { socket.Close(); } catch { }
+			}
+
+			GC.SuppressFinalize(this);
 		}
 
 		void SendPending()
@@ -143,13 +172,15 @@ namespace ServerLib
 			if (_disconnected == 1)
 				return;
 
-			while (false == IsDone())
+			lock(_lock)
 			{
-				ArraySegment<byte> buff = _sendQueue.Dequeue();
-				_pendingList.Add(buff);
-			}
-			_sendArgs.BufferList = _pendingList;
-
+                while (false == EmptySendQueue())
+                {
+                    ArraySegment<byte> buff = _sendQueue.Dequeue();
+                    _pendingList.Add(buff);
+                }
+                _sendArgs.BufferList = _pendingList;
+            }
 			try
 			{
 				bool pending = _socket.SendAsync(_sendArgs);
@@ -165,19 +196,28 @@ namespace ServerLib
 
 		void OnSendCompleted(object sender, SocketAsyncEventArgs args)
 		{
+			if(_disconnected == 1)
+				return;
+#if DEBUG
+            int pendingBytes = 0;
+            foreach (var segment in _pendingList) { pendingBytes += segment.Count; }
+            Debug.Assert(args.BytesTransferred <= pendingBytes, "[Session::OnSendCompleted()] Transffered more than pending bytes");
+#endif
+			bool needSend = false;
+            
 			lock (_lock)
 			{
 				if (args.BytesTransferred > 0 && args.SocketError == SocketError.Success)
 				{
 					try
 					{
+						RemoveSent(args.BytesTransferred);
 						_sendArgs.BufferList = null;
-						_pendingList.Clear();
 
-						OnSend(_sendArgs.BytesTransferred);
+						OnSend(args.BytesTransferred);
 
-						if (false == IsDone())
-							SendPending();
+						if (HasPending() || EmptySendQueue() == false) // PendingList가 남았거나 SendQueue에 새 항목이 있음
+							needSend = true;
 					}
 					catch (Exception e)
 					{
@@ -189,9 +229,32 @@ namespace ServerLib
 					Disconnect();
 				}
 			}
+
+			if (needSend)
+				SendPending();
 		}
 
-		void RegisterRecv()
+        void RemoveSent(int transferred)
+        {
+			int remain = transferred;
+			while (remain > 0 && _pendingList.Count > 0)
+			{
+				var segment = _pendingList[0];
+
+				if(segment.Count <= remain)
+				{
+					remain -= segment.Count;
+					_pendingList.RemoveAt(0);
+				}
+				else
+				{
+					_pendingList[0] = new ArraySegment<byte>(segment.Array, segment.Offset + remain, segment.Count - remain);
+					remain = 0;
+				}
+			}
+        }
+
+        void RegisterRecv()
 		{
 			if (_disconnected == 1)
 				return;
@@ -215,9 +278,12 @@ namespace ServerLib
 
 		void OnRecvCompleted(object sender, SocketAsyncEventArgs args)
 		{
+			if (_disconnected == 1)
+				return;
+
 			if (args.BytesTransferred == 0)
 			{
-				Console.WriteLine($"OnRecvComplted Failed. Recv Zero.");
+				Disconnect();
 				return;
 			}
 

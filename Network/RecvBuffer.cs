@@ -18,7 +18,7 @@ namespace ServerLib
 		}
 
 		public int UnProcessedSize { get { return _receivedPos - _currentPos; } }
-		public int WritableSize { get { return _buffer.Count - _receivedPos; } }
+		public int WritableSize { get { return _buffer.Count - _receivedPos; } } 
 
 		public ArraySegment<byte> ReadSegment
 		{
@@ -35,38 +35,45 @@ namespace ServerLib
 			if(_currentPos == 0)
 				return;
 
-			int remainSize = UnProcessedSize;
-			if (remainSize == 0)
+			int remain = UnProcessedSize;
+			if (remain == 0)
 			{
 				_receivedPos = 0;
 
-				if(_buffer.Count != _origBufSize)
+				if(_buffer.Count > _origBufSize * 4)
 					_buffer = new ArraySegment<byte>(new byte[_origBufSize], 0, _origBufSize);
 			}
 			else
 			{
-				Array.Copy(_buffer.Array, _buffer.Offset + _currentPos, _buffer.Array, _buffer.Offset, remainSize);
-				_receivedPos = remainSize;
+				Array.Copy(_buffer.Array, _buffer.Offset + _currentPos, _buffer.Array, _buffer.Offset, remain);
+				_receivedPos = remain;
 			}
 
 			_currentPos = 0;
 		}
 
-		public void Grow()
+		public void Grow() 
 		{
 			if(WritableSize == 0)
 			{
-				int newSize = _buffer.Count + _origBufSize;
+				int newSize = _buffer.Count * 2;
 				var newBuffer = new ArraySegment<byte>(new byte[newSize], 0 , newSize);
 
-				Array.Copy(_buffer.Array, _buffer.Offset + _currentPos, newBuffer.Array, newBuffer.Offset, _currentPos);
+				int remain = UnProcessedSize;
+				Array.Copy(_buffer.Array, _buffer.Offset + _currentPos, newBuffer.Array, newBuffer.Offset, remain);
+
+				_receivedPos = remain;
+				_currentPos = 0;
 
 				_buffer = newBuffer;
 			}
 		}
 
-		public bool OnProcess(int bytes)
+		public bool OnProcess(int bytes) 
 		{
+			if(bytes <= 0)
+				return false;
+
 			if (bytes > UnProcessedSize)
 				return false;
 
@@ -74,9 +81,12 @@ namespace ServerLib
 			return true;
 		}
 
-		public bool OnRecv(int transferred)
+		public bool OnRecv(int transferred) 
 		{
-			if (transferred > WritableSize)
+			if (transferred <= 0)
+				return false;
+
+            if (transferred > WritableSize)
 				return false;
 
 			_receivedPos += transferred;
