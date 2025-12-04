@@ -1,5 +1,6 @@
 # ServerLib
-게임 서버를 목표로 작성한 c#기반 프레임워크입니다. 
+게임 서버를 목표로 작성한 c#기반 프레임워크입니다.
+
 멀티스레드 Job System, 비동기 소켓 IO, Redis 연동 등
 
 Components:
