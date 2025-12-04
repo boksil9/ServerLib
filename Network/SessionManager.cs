@@ -1,5 +1,7 @@
-﻿using ServerLib;
+﻿using Google.Protobuf;
+using ServerLib;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -11,86 +13,58 @@ namespace ServerLib
 		public static SessionManager Instance { get; } = new SessionManager();
 
 		int _sessionId = 0;
-
-		Dictionary<int, Session> _sessions = new Dictionary<int, Session>();
-		object _lock = new object();
-
-		public List<Session> GetSessions()
-		{
-			List<Session> sessions = new List<Session>();
-
-			lock (_lock)
-			{
-				sessions = _sessions.Values.ToList();
-			}
-
-			return sessions;
-		}
+		ConcurrentDictionary<int, Session> _sessions = new ConcurrentDictionary<int, Session>();
 
 		public T Generate<T>() where T : Session, new() 
 		{
-			lock (_lock)
-			{
-				int sessionId = ++_sessionId;
+			int sessionId = ++_sessionId;
 
-				T session = new T();
-				session.SessionId = sessionId;
-				session.SessionMgr = this;
+			T session = new T();
+			session.SessionId = sessionId;
+			session.SessionMgr = this;
 
-				_sessions.Add(sessionId, session);
-				Console.WriteLine($"Connected : {sessionId}");
+			_sessions.TryAdd(sessionId, session);
+			Console.WriteLine($"Connected : {sessionId}");
 
-				return session;
-			}
+			return session;
 		}
 
 		public Session Seek(int id)
 		{
-			lock (_lock)
-			{
-				_sessions.TryGetValue(id, out Session session);
-				return session;
-			}
+			_sessions.TryGetValue(id, out Session session);
+			return session;
 		}
 
 		public void Remove(Session session)
 		{
-			lock (_lock)
-			{
-				_sessions.Remove(session.SessionId);
-			}
+			_sessions.TryRemove(session.SessionId, out Session removed);
 		}
 
 		public int Count()
 		{
-			lock (_lock)
-			{
-				return _sessions.Count;
-			}
+			return _sessions.Count;
 		}
 
 		public int DisconnectAll()
 		{
-			var sessions = GetSessions();
+			var sessions = _sessions.Values.ToList();
 
-			lock(_lock)
-			{
-				foreach(var session in sessions)
-					session.Disconnect();
+			foreach(var session in sessions)
+				session.Disconnect();
 
-				return sessions.Count;
-			}
+			return sessions.Count;
 		}
 
-		public void BroadCast(ArraySegment<byte> sendBuff)
+		public void BroadCast(IMessage packet)
 		{
-			lock(_lock)
-			{
-				foreach(var session in _sessions)
-				{
-					session.Value.Send(sendBuff);
-				}
-			}
-		}
+			var sessions = _sessions.Values.ToList();
+	
+			var seg = PacketBuilder.Build(packet);
+
+			foreach (var session in sessions)
+				session.Send(seg);
+
+			PacketBuilder.ResetBuffer();
+        }
 	}
 }
