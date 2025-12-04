@@ -15,21 +15,10 @@ namespace ServerLib
 
 		public virtual void Send(IMessage packet)
 		{
-            Send(new ArraySegment<byte>(MakeSendBuffer(packet)));
-        }
-
-        public virtual byte[] MakeSendBuffer(IMessage packet) 
-        {
-            ushort size = (ushort)packet.CalculateSize();
-
-            ArraySegment<byte> segment = SendBufferHelper.Open(4096);
-            Array.Copy(BitConverter.GetBytes((ushort)(size + sizeof(ushort))), 0, segment.Array, segment.Offset, sizeof(ushort));
-            Array.Copy(packet.ToByteArray(), 0, segment.Array, segment.Offset + sizeof(ushort), size);
-
-            return SendBufferHelper.Close(size + sizeof(ushort)).Array;
+			var seg = PacketBuilder.Build(packet);
+            Send(seg);
         }
 		
-
         public sealed override int OnRecv(ArraySegment<byte> buffer)
 		{
 			int processLen = 0;
@@ -74,7 +63,8 @@ namespace ServerLib
         public int SessionId { get; set; }
 		public SessionManager SessionMgr { get; set; }
 
-        RecvBuffer _recvBuffer = new RecvBuffer(65535);
+        protected RecvBuffer _recvBuffer = new RecvBuffer(65535);
+		//protected SendBuffer _sendBuffer = new SendBuffer(65535);
 
 		object _lock = new object();
 		Queue<ArraySegment<byte>> _sendQueue = new Queue<ArraySegment<byte>>();
